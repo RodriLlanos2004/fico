@@ -8,20 +8,34 @@
       "name": "Telegram Trigger",
       "type": "n8n-nodes-base.telegramTrigger",
       "typeVersion": 1.2,
-      "position": [0, 0],
+      "position": [
+        0,
+        0
+      ],
       "webhookId": "f1c00001-0000-4000-8000-000000000001",
       "parameters": {
-        "updates": ["message", "callback_query"],
+        "updates": [
+          "message",
+          "callback_query"
+        ],
         "additionalFields": {}
       },
-      "credentials": { "telegramApi": { "id": "a2udst62qyqNrKrY", "name": "Telegram account" } }
+      "credentials": {
+        "telegramApi": {
+          "id": "a2udst62qyqNrKrY",
+          "name": "Telegram account"
+        }
+      }
     },
     {
       "id": "01-permitido",
       "name": "Usuario permitido",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [220, 0],
+      "position": [
+        220,
+        0
+      ],
       "notes": "Lista de permitidos: solo pasa quien este en users. Los grupos tienen chat_id negativo y nunca coinciden.",
       "parameters": {
         "operation": "executeQuery",
@@ -30,14 +44,22 @@
           "queryReplacement": "={{ [ $json.message?.chat?.id ?? $json.callback_query?.message?.chat?.id ?? -1 ] }}"
         }
       },
-      "credentials": { "postgres": { "id": "ROE3CmF5P4ooMVqT", "name": "Postgres account" } }
+      "credentials": {
+        "postgres": {
+          "id": "ROE3CmF5P4ooMVqT",
+          "name": "Postgres account"
+        }
+      }
     },
     {
       "id": "01-normalizar",
       "name": "Normalizar",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [440, 0],
+      "position": [
+        440,
+        0
+      ],
       "parameters": {
         "jsCode": "// Corta aqui si el chat no esta permitido: sin items no corre nada mas (cero tokens).\nconst user = $input.first()?.json ?? {};\nif (!user.user_id) return [];\n\nconst u = $('Telegram Trigger').first().json;\nconst m = u.message;\nconst cb = u.callback_query;\nconst chat_id = m?.chat?.id ?? cb?.message?.chat?.id;\n\nlet tipo = 'otro';\nif (cb) tipo = 'callback';\nelse if (m?.voice || m?.audio) tipo = 'voz';\nelse if (m?.text) tipo = 'texto';\n\nreturn [{ json: {\n  user_id: user.user_id,\n  chat_id,\n  canal: 'telegram',\n  tipo,\n  texto: m?.text ?? '',\n  file_id: m?.voice?.file_id ?? m?.audio?.file_id ?? null,\n  callback_id: cb?.id ?? null,\n  callback_data: cb?.data ?? null,\n  message_id: (m ?? cb?.message)?.message_id ?? null,\n  session_id: `tg-${chat_id}`,\n  timestamp: new Date().toISOString(),\n} }];"
       }
@@ -47,15 +69,31 @@
       "name": "Tipo",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
-      "position": [660, 0],
+      "position": [
+        660,
+        0
+      ],
       "parameters": {
         "rules": {
           "values": [
             {
               "conditions": {
-                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
                 "conditions": [
-                  { "id": "c-texto", "leftValue": "={{ $json.tipo }}", "rightValue": "texto", "operator": { "type": "string", "operation": "equals" } }
+                  {
+                    "id": "c-texto",
+                    "leftValue": "={{ $json.tipo }}",
+                    "rightValue": "texto",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
                 ],
                 "combinator": "and"
               },
@@ -64,9 +102,22 @@
             },
             {
               "conditions": {
-                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
                 "conditions": [
-                  { "id": "c-voz", "leftValue": "={{ $json.tipo }}", "rightValue": "voz", "operator": { "type": "string", "operation": "equals" } }
+                  {
+                    "id": "c-voz",
+                    "leftValue": "={{ $json.tipo }}",
+                    "rightValue": "voz",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
                 ],
                 "combinator": "and"
               },
@@ -75,9 +126,22 @@
             },
             {
               "conditions": {
-                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
                 "conditions": [
-                  { "id": "c-callback", "leftValue": "={{ $json.tipo }}", "rightValue": "callback", "operator": { "type": "string", "operation": "equals" } }
+                  {
+                    "id": "c-callback",
+                    "leftValue": "={{ $json.tipo }}",
+                    "rightValue": "callback",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
                 ],
                 "combinator": "and"
               },
@@ -94,19 +158,30 @@
       "name": "Descargar audio",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [880, 120],
+      "position": [
+        880,
+        120
+      ],
       "parameters": {
         "resource": "file",
         "fileId": "={{ $json.file_id }}"
       },
-      "credentials": { "telegramApi": { "id": "a2udst62qyqNrKrY", "name": "Telegram account" } }
+      "credentials": {
+        "telegramApi": {
+          "id": "a2udst62qyqNrKrY",
+          "name": "Telegram account"
+        }
+      }
     },
     {
       "id": "01-renombrar",
       "name": "Renombrar a ogg",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1100, 120],
+      "position": [
+        1100,
+        120
+      ],
       "parameters": {
         "jsCode": "// Telegram entrega .oga; el transcriptor solo acepta la extension .ogg (mismo formato).\nconst item = $input.first();\nitem.binary.data.fileName = 'audio.ogg';\nitem.binary.data.mimeType = 'audio/ogg';\nreturn [item];"
       }
@@ -116,7 +191,10 @@
       "name": "Transcribir (Groq)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1320, 120],
+      "position": [
+        1320,
+        120
+      ],
       "parameters": {
         "method": "POST",
         "url": "https://api.groq.com/openai/v1/audio/transcriptions",
@@ -126,21 +204,39 @@
         "contentType": "multipart-form-data",
         "bodyParameters": {
           "parameters": [
-            { "parameterType": "formBinaryData", "name": "file", "inputDataFieldName": "data" },
-            { "name": "model", "value": "whisper-large-v3-turbo" },
-            { "name": "language", "value": "es" }
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "data"
+            },
+            {
+              "name": "model",
+              "value": "whisper-large-v3-turbo"
+            },
+            {
+              "name": "language",
+              "value": "es"
+            }
           ]
         },
         "options": {}
       },
-      "credentials": { "groqApi": { "id": "iyRJW4whXz3XeYG2", "name": "Groq account" } }
+      "credentials": {
+        "groqApi": {
+          "id": "iyRJW4whXz3XeYG2",
+          "name": "Groq account"
+        }
+      }
     },
     {
       "id": "01-voz-texto",
       "name": "Voz a texto",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1540, 120],
+      "position": [
+        1540,
+        120
+      ],
       "parameters": {
         "jsCode": "const n = $('Normalizar').first().json;\nreturn [{ json: { ...n, texto: ($input.first().json.text ?? '').trim() } }];"
       }
@@ -150,9 +246,16 @@
       "name": "Llamar agente",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.1,
-      "position": [1760, 0],
+      "position": [
+        1760,
+        0
+      ],
       "parameters": {
-        "workflowId": { "__rl": true, "value": "fico10agente", "mode": "id" },
+        "workflowId": {
+          "__rl": true,
+          "value": "fico10agente",
+          "mode": "id"
+        },
         "options": {}
       }
     },
@@ -161,31 +264,138 @@
       "name": "Responder",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [1980, 0],
+      "position": [
+        1980,
+        0
+      ],
       "parameters": {
         "chatId": "={{ $('Normalizar').first().json.chat_id }}",
-        "text": "={{ String($json.respuesta ?? 'No tengo respuesta.').slice(0, 4000) }}",
-        "additionalFields": { "appendAttribution": false }
+        "text": "={{ String($json.respuesta ?? \"No tengo respuesta.\").slice(0, 3500).replace(/&/g, \"&amp;\").replace(/</g, \"&lt;\").replace(/>/g, \"&gt;\") }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
       },
-      "credentials": { "telegramApi": { "id": "a2udst62qyqNrKrY", "name": "Telegram account" } }
+      "credentials": {
+        "telegramApi": {
+          "id": "a2udst62qyqNrKrY",
+          "name": "Telegram account"
+        }
+      },
+      "notes": "El nodo de Telegram siempre aplica un formato; se usa HTML con el texto escapado para que cualquier caracter del modelo llegue tal cual."
     }
   ],
   "connections": {
-    "Telegram Trigger": { "main": [[{ "node": "Usuario permitido", "type": "main", "index": 0 }]] },
-    "Usuario permitido": { "main": [[{ "node": "Normalizar", "type": "main", "index": 0 }]] },
-    "Normalizar": { "main": [[{ "node": "Tipo", "type": "main", "index": 0 }]] },
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Usuario permitido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Usuario permitido": {
+      "main": [
+        [
+          {
+            "node": "Normalizar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar": {
+      "main": [
+        [
+          {
+            "node": "Tipo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Tipo": {
       "main": [
-        [{ "node": "Llamar agente", "type": "main", "index": 0 }],
-        [{ "node": "Descargar audio", "type": "main", "index": 0 }],
+        [
+          {
+            "node": "Llamar agente",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Descargar audio",
+            "type": "main",
+            "index": 0
+          }
+        ],
         []
       ]
     },
-    "Descargar audio": { "main": [[{ "node": "Renombrar a ogg", "type": "main", "index": 0 }]] },
-    "Renombrar a ogg": { "main": [[{ "node": "Transcribir (Groq)", "type": "main", "index": 0 }]] },
-    "Transcribir (Groq)": { "main": [[{ "node": "Voz a texto", "type": "main", "index": 0 }]] },
-    "Voz a texto": { "main": [[{ "node": "Llamar agente", "type": "main", "index": 0 }]] },
-    "Llamar agente": { "main": [[{ "node": "Responder", "type": "main", "index": 0 }]] }
+    "Descargar audio": {
+      "main": [
+        [
+          {
+            "node": "Renombrar a ogg",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Renombrar a ogg": {
+      "main": [
+        [
+          {
+            "node": "Transcribir (Groq)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcribir (Groq)": {
+      "main": [
+        [
+          {
+            "node": "Voz a texto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Voz a texto": {
+      "main": [
+        [
+          {
+            "node": "Llamar agente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Llamar agente": {
+      "main": [
+        [
+          {
+            "node": "Responder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "settings": { "executionOrder": "v1", "errorWorkflow": "fico00errores" }
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "fico00errores"
+  }
 }

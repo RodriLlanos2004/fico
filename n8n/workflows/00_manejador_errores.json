@@ -8,7 +8,10 @@
       "name": "Error Trigger",
       "type": "n8n-nodes-base.errorTrigger",
       "typeVersion": 1,
-      "position": [0, 0],
+      "position": [
+        0,
+        0
+      ],
       "parameters": {}
     },
     {
@@ -16,7 +19,10 @@
       "name": "Registrar y buscar chat",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [220, 0],
+      "position": [
+        220,
+        0
+      ],
       "parameters": {
         "operation": "executeQuery",
         "query": "with l as (\n  insert into agent_logs (canal, input, error) values ('sistema', $1, $2)\n)\nselect telegram_chat_id from users order by id limit 1",
@@ -24,25 +30,63 @@
           "queryReplacement": "={{ [ $json.workflow?.name ?? 'desconocido', String($json.execution?.error?.message ?? $json.trigger?.error?.message ?? 'error sin mensaje').slice(0, 1000) ] }}"
         }
       },
-      "credentials": { "postgres": { "id": "ROE3CmF5P4ooMVqT", "name": "Postgres account" } }
+      "credentials": {
+        "postgres": {
+          "id": "ROE3CmF5P4ooMVqT",
+          "name": "Postgres account"
+        }
+      }
     },
     {
       "id": "00-aviso",
       "name": "Avisar por Telegram",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [440, 0],
+      "position": [
+        440,
+        0
+      ],
       "parameters": {
         "chatId": "={{ $json.telegram_chat_id }}",
-        "text": "=FICO tuvo un error en \"{{ $('Error Trigger').first().json.workflow?.name }}\":\n{{ String($('Error Trigger').first().json.execution?.error?.message ?? 'sin mensaje').slice(0, 500) }}",
-        "additionalFields": { "appendAttribution": false }
+        "text": "={{ (\"FICO tuvo un error en \" + ($(\"Error Trigger\").first().json.workflow?.name ?? \"?\") + \": \" + String($(\"Error Trigger\").first().json.execution?.error?.message ?? \"sin mensaje\").slice(0, 500)).replace(/&/g, \"&amp;\").replace(/</g, \"&lt;\").replace(/>/g, \"&gt;\") }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
       },
-      "credentials": { "telegramApi": { "id": "a2udst62qyqNrKrY", "name": "Telegram account" } }
+      "credentials": {
+        "telegramApi": {
+          "id": "a2udst62qyqNrKrY",
+          "name": "Telegram account"
+        }
+      }
     }
   ],
   "connections": {
-    "Error Trigger": { "main": [[{ "node": "Registrar y buscar chat", "type": "main", "index": 0 }]] },
-    "Registrar y buscar chat": { "main": [[{ "node": "Avisar por Telegram", "type": "main", "index": 0 }]] }
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Registrar y buscar chat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar y buscar chat": {
+      "main": [
+        [
+          {
+            "node": "Avisar por Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "settings": { "executionOrder": "v1" }
+  "settings": {
+    "executionOrder": "v1"
+  }
 }
