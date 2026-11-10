@@ -146,15 +146,25 @@
       }
     },
     {
-      "id": "01-eco",
-      "name": "Eco",
+      "id": "01-agente",
+      "name": "Llamar agente",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1760, 0],
+      "parameters": {
+        "workflowId": { "__rl": true, "value": "fico10agente", "mode": "id" },
+        "options": {}
+      }
+    },
+    {
+      "id": "01-responder",
+      "name": "Responder",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [1760, 0],
-      "notes": "Temporal (hito C). En el hito D se reemplaza por la llamada al workflow 10.",
+      "position": [1980, 0],
       "parameters": {
-        "chatId": "={{ $json.chat_id }}",
-        "text": "=Eco ({{ $json.tipo }}): {{ $json.texto }}",
+        "chatId": "={{ $('Normalizar').first().json.chat_id }}",
+        "text": "={{ String($json.respuesta ?? 'No tengo respuesta.').slice(0, 4000) }}",
         "additionalFields": { "appendAttribution": false }
       },
       "credentials": { "telegramApi": { "id": "a2udst62qyqNrKrY", "name": "Telegram account" } }
@@ -166,7 +176,7 @@
     "Normalizar": { "main": [[{ "node": "Tipo", "type": "main", "index": 0 }]] },
     "Tipo": {
       "main": [
-        [{ "node": "Eco", "type": "main", "index": 0 }],
+        [{ "node": "Llamar agente", "type": "main", "index": 0 }],
         [{ "node": "Descargar audio", "type": "main", "index": 0 }],
         []
       ]
@@ -174,7 +184,8 @@
     "Descargar audio": { "main": [[{ "node": "Renombrar a ogg", "type": "main", "index": 0 }]] },
     "Renombrar a ogg": { "main": [[{ "node": "Transcribir (Groq)", "type": "main", "index": 0 }]] },
     "Transcribir (Groq)": { "main": [[{ "node": "Voz a texto", "type": "main", "index": 0 }]] },
-    "Voz a texto": { "main": [[{ "node": "Eco", "type": "main", "index": 0 }]] }
+    "Voz a texto": { "main": [[{ "node": "Llamar agente", "type": "main", "index": 0 }]] },
+    "Llamar agente": { "main": [[{ "node": "Responder", "type": "main", "index": 0 }]] }
   },
   "settings": { "executionOrder": "v1", "errorWorkflow": "fico00errores" }
 }

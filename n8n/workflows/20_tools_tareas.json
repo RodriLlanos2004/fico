@@ -1,0 +1,93 @@
+{
+  "id": "fico20tareas",
+  "name": "FICO - 20 - Tools Tareas",
+  "active": false,
+  "nodes": [
+    {
+      "id": "20-inicio",
+      "name": "Inicio",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0],
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            { "name": "accion" },
+            { "name": "user_id", "type": "number" },
+            { "name": "titulo" },
+            { "name": "notas" },
+            { "name": "vence" },
+            { "name": "tarea_id", "type": "number" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "20-preparar",
+      "name": "Preparar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 0],
+      "notes": "Valida entradas y elige la consulta. El SQL es fijo y parametrizado; nada del LLM se concatena.",
+      "parameters": {
+        "jsCode": "const i = $input.first().json;\nconst accion = String(i.accion ?? '');\nconst user_id = Number(i.user_id);\nconst titulo = String(i.titulo ?? '').trim();\nconst notas = String(i.notas ?? '').trim();\nconst vence = String(i.vence ?? '').trim();\nconst tarea_id = Number(i.tarea_id) || 0;\n\n// Si la validacion falla se corre esta consulta inofensiva y el error viaja a Formato.\nlet sql = \"select '[]'::json as filas, 0 as coincidencias\";\nlet params = [];\nlet error = null;\n\nif (!Number.isInteger(user_id) || user_id <= 0) {\n  error = 'user_id inválido';\n} else if (accion === 'crear') {\n  if (!titulo) error = 'Falta el título de la tarea';\n  else if (titulo.length > 200) error = 'El título es demasiado largo (máx. 200)';\n  else if (vence && (!/^\\d{4}-\\d{2}-\\d{2}$/.test(vence) || isNaN(Date.parse(vence)))) error = 'La fecha debe tener formato AAAA-MM-DD';\n  else {\n    sql = \"with n as (insert into tasks (user_id, titulo, notas, vence) values ($1, $2, nullif($3, ''), nullif($4, '')::date) returning id, titulo, vence) select coalesce(json_agg(n), '[]'::json) as filas, 1 as coincidencias from n\";\n    params = [user_id, titulo, notas, vence];\n  }\n} else if (accion === 'listar') {\n  sql = \"select coalesce(json_agg(t), '[]'::json) as filas, 0 as coincidencias from (select id, titulo, vence, notas from tasks where user_id = $1 and estado = 'pendiente' order by vence nulls last, id limit 30) t\";\n  params = [user_id];\n} else if (accion === 'completar') {\n  if (!tarea_id && !titulo) error = 'Indica el id o parte del título de la tarea';\n  else {\n    // Solo completa si hay exactamente una coincidencia.\n    sql = \"with c as (select id from tasks where user_id = $1 and estado = 'pendiente' and (($2::bigint > 0 and id = $2::bigint) or ($2::bigint = 0 and titulo ilike '%' || $3 || '%'))), u as (update tasks set estado = 'hecha', completed_at = now() where id in (select id from c) and (select count(*) from c) = 1 returning id, titulo) select coalesce((select json_agg(u) from u), '[]'::json) as filas, (select count(*) from c)::int as coincidencias\";\n    params = [user_id, tarea_id, titulo];\n  }\n} else {\n  error = 'Acción desconocida: ' + accion;\n}\n\nreturn [{ json: { accion, entrada: { titulo, notas, vence, tarea_id }, sql, params, error } }];"
+      }
+    },
+    {
+      "id": "20-ejecutar",
+      "name": "Ejecutar",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [440, 0],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.sql }}",
+        "options": { "queryReplacement": "={{ $json.params }}" }
+      },
+      "credentials": { "postgres": { "id": "ROE3CmF5P4ooMVqT", "name": "Postgres account" } }
+    },
+    {
+      "id": "20-formato",
+      "name": "Formato",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 0],
+      "notes": "Arma el contrato { ok, data, resumen, error }.",
+      "parameters": {
+        "jsCode": "const p = $('Preparar').first().json;\nconst r = $input.first().json;\nconst filas = Array.isArray(r.filas) ? r.filas : [];\nlet ok = !p.error;\nlet error = p.error;\nlet resumen = '';\n\nif (ok && p.accion === 'crear') {\n  resumen = `Tarea creada: \"${filas[0].titulo}\"` + (filas[0].vence ? ` para el ${filas[0].vence}` : '');\n} else if (ok && p.accion === 'listar') {\n  resumen = filas.length ? `${filas.length} tarea(s) pendiente(s)` : 'No hay tareas pendientes';\n} else if (ok && p.accion === 'completar') {\n  if (filas.length === 1) resumen = `Tarea completada: \"${filas[0].titulo}\"`;\n  else {\n    ok = false;\n    error = r.coincidencias === 0\n      ? 'No encontré una tarea pendiente que coincida'\n      : `Hay ${r.coincidencias} tareas que coinciden; pide al usuario que precise cuál`;\n  }\n}\nif (!ok) resumen = error;\n\nreturn [{ json: {\n  respuesta: { ok, data: filas, resumen, error: ok ? null : error },\n  log: [JSON.stringify(p.entrada), JSON.stringify([`tareas.${p.accion}`]), resumen, ok ? null : error],\n} }];"
+      }
+    },
+    {
+      "id": "20-log",
+      "name": "Log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [880, 0],
+      "alwaysOutputData": true,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into agent_logs (canal, input, tools_llamadas, output, error) values ('tool', $1, $2::jsonb, $3, $4)",
+        "options": { "queryReplacement": "={{ $json.log }}" }
+      },
+      "credentials": { "postgres": { "id": "ROE3CmF5P4ooMVqT", "name": "Postgres account" } }
+    },
+    {
+      "id": "20-salida",
+      "name": "Salida",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 0],
+      "parameters": {
+        "jsCode": "return [{ json: $('Formato').first().json.respuesta }];"
+      }
+    }
+  ],
+  "connections": {
+    "Inicio": { "main": [[{ "node": "Preparar", "type": "main", "index": 0 }]] },
+    "Preparar": { "main": [[{ "node": "Ejecutar", "type": "main", "index": 0 }]] },
+    "Ejecutar": { "main": [[{ "node": "Formato", "type": "main", "index": 0 }]] },
+    "Formato": { "main": [[{ "node": "Log", "type": "main", "index": 0 }]] },
+    "Log": { "main": [[{ "node": "Salida", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1", "errorWorkflow": "fico00errores" }
+}
