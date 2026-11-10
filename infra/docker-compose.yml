@@ -6,7 +6,7 @@ x-logging: &logging
 
 services:
   n8n:
-    image: n8nio/n8n:${N8N_VERSION:-latest}
+    image: n8nio/n8n:${N8N_VERSION:-2.46.7}
     restart: unless-stopped
     # Solo las variables que n8n necesita; el resto del .env no entra al contenedor.
     environment:

@@ -1,0 +1,28 @@
+# Desarrollo en la laptop: n8n + tunel gratuito de Cloudflare (sin cuenta).
+# No lo levantes a mano: usa  bash infra/local-up.sh  (la URL del tunel cambia en cada arranque).
+services:
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate --url http://n8n:5678
+
+  n8n:
+    image: n8nio/n8n:${N8N_VERSION:-2.46.7}
+    ports:
+      - "127.0.0.1:5678:5678"
+    environment:
+      WEBHOOK_URL: ${FICO_URL:-}/
+      N8N_PROXY_HOPS: "1"
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      GENERIC_TIMEZONE: America/Mexico_City
+      TZ: America/Mexico_City
+      DB_TYPE: sqlite
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_MAX_AGE: "168"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "true"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ../n8n/workflows:/workflows:ro
+
+volumes:
+  n8n_data:
