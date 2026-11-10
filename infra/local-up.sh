@@ -4,6 +4,7 @@
 # registrar el webhook de Telegram solo. La URL de Siri hay que actualizarla en el atajo.
 set -euo pipefail
 cd "$(dirname "$0")"
+docker info >/dev/null 2>&1 || { echo "Docker no esta corriendo. Abre Docker Desktop, espera a que diga 'Engine running' y vuelve a intentar."; exit 1; }
 C="docker compose -p fico-local -f docker-compose.local.yml --env-file .env.local"
 
 # Secretos locales, generados una sola vez. No se imprimen.
