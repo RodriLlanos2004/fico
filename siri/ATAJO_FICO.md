@@ -6,9 +6,7 @@ Dos atajos en la app **Atajos** del iPhone. Tiempo: unos 15 minutos.
 
 Necesitas dos datos:
 
-- **URL base**: la línea "Publico" que imprime `infra/local-up.sh`, por ejemplo
-  `https://algo-al-azar.trycloudflare.com`. Mientras FICO corra en la laptop esta URL **cambia en cada
-  arranque** y hay que actualizarla en los dos atajos. Con servidor fijo ya no cambia.
+- **URL base**: la línea "Publico" que imprime `infra/local-up.sh`, por ejemplo `https://tu-nombre.ngrok-free.app`.
 - **Token**: el valor de `SIRI_TOKEN` en `infra/.env.local` (ábrelo con `notepad infra\.env.local`).
   Pásalo al iPhone por una nota de iCloud o AirDrop; no lo mandes por chats.
 
