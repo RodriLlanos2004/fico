@@ -8,7 +8,10 @@
       "name": "Inicio",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1,
-      "position": [0, 0],
+      "position": [
+        0,
+        0
+      ],
       "notes": "Recibe el objeto normalizado: { user_id, canal, tipo, texto, session_id, timestamp }.",
       "parameters": {}
     },
@@ -17,21 +20,34 @@
       "name": "Contexto",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [220, 0],
+      "position": [
+        220,
+        0
+      ],
       "notes": "Fecha actual en Ciudad de Mexico y perfil (consultar_perfil) para inyectar en el prompt.",
       "parameters": {
         "operation": "executeQuery",
         "query": "select to_char(now() at time zone 'America/Mexico_City', 'YYYY-MM-DD HH24:MI') as ahora,\n       (array['lunes','martes','miércoles','jueves','viernes','sábado','domingo'])[extract(isodow from now() at time zone 'America/Mexico_City')::int] as dia,\n       coalesce((select string_agg('- ' || hecho, E'\\n') from memory_facts m where m.user_id = u.id), 'Sin datos guardados todavía.') as perfil\nfrom users u where u.id = $1",
-        "options": { "queryReplacement": "={{ [ $json.user_id ] }}" }
+        "options": {
+          "queryReplacement": "={{ [ $json.user_id ] }}"
+        }
       },
-      "credentials": { "postgres": { "id": "ROE3CmF5P4ooMVqT", "name": "Postgres account" } }
+      "credentials": {
+        "postgres": {
+          "id": "ROE3CmF5P4ooMVqT",
+          "name": "Postgres account"
+        }
+      }
     },
     {
       "id": "10-agente",
       "name": "FICO",
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 1.7,
-      "position": [440, 0],
+      "position": [
+        440,
+        0
+      ],
       "onError": "continueRegularOutput",
       "parameters": {
         "promptType": "define",
@@ -48,37 +64,113 @@
       "name": "Gemini",
       "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
       "typeVersion": 1,
-      "position": [360, 220],
+      "position": [
+        360,
+        220
+      ],
       "parameters": {
         "modelName": "models/gemini-flash-lite-latest",
-        "options": { "temperature": 0.3 }
+        "options": {
+          "temperature": 0.3
+        }
       },
-      "credentials": { "googlePalmApi": { "id": "4VvyJ6t19K0FWbDG", "name": "Google Gemini(PaLM) Api account" } }
+      "credentials": {
+        "googlePalmApi": {
+          "id": "4VvyJ6t19K0FWbDG",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
     },
     {
       "id": "10-memoria",
       "name": "Memoria",
       "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
       "typeVersion": 1.3,
-      "position": [520, 220],
+      "position": [
+        520,
+        220
+      ],
       "parameters": {
         "sessionIdType": "customKey",
         "sessionKey": "={{ $('Inicio').first().json.session_id }}",
         "tableName": "n8n_chat_histories",
         "contextWindowLength": 12
       },
-      "credentials": { "postgres": { "id": "ROE3CmF5P4ooMVqT", "name": "Postgres account" } }
+      "credentials": {
+        "postgres": {
+          "id": "ROE3CmF5P4ooMVqT",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "id": "10-resultado",
+      "name": "Resultado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        0
+      ],
+      "notes": "Arma la respuesta y la fila de agent_logs. Tokens y costo quedan pendientes (hito H).",
+      "parameters": {
+        "jsCode": "const e = $('Inicio').first().json;\nconst a = $input.first().json;\nconst pasos = a.intermediateSteps ?? [];\nconst tools = pasos.map(s => s.action?.tool).filter(Boolean);\nconst error = a.error ? String(a.error.message ?? a.error).slice(0, 1000) : null;\nconst respuesta = a.output || 'Tuve un problema para responder. Intenta de nuevo en un minuto.';\nconst latencia = e.timestamp ? Date.now() - Date.parse(e.timestamp) : null;\n\n// Acciones para el iPhone: salen de lo que devolvieron crear_alarma / iniciar_temporizador.\nconst acciones_locales = [];\nfor (const s of pasos) {\n  if (!['crear_alarma', 'iniciar_temporizador'].includes(s.action?.tool)) continue;\n  try {\n    let o = typeof s.observation === 'string' ? JSON.parse(s.observation) : s.observation;\n    if (Array.isArray(o)) o = o[0];\n    o = o?.json ?? o;\n    if (o?.ok && o.data?.[0]) acciones_locales.push(o.data[0]);\n  } catch (err) { /* observacion no parseable: se ignora */ }\n}\n\nreturn [{ json: {\n  respuesta,\n  acciones_locales,\n  log: [e.session_id ?? null, e.canal ?? null, e.texto ?? '', JSON.stringify(tools), respuesta, latencia, error],\n} }];"
+      }
+    },
+    {
+      "id": "10-registrar",
+      "name": "Registrar",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1020,
+        0
+      ],
+      "alwaysOutputData": true,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into agent_logs (session_id, canal, input, tools_llamadas, output, latencia_ms, error) values ($1, $2, $3, $4::jsonb, $5, $6, $7)",
+        "options": {
+          "queryReplacement": "={{ $json.log }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "ROE3CmF5P4ooMVqT",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "id": "10-salida",
+      "name": "Salida",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1240,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const r = $('Resultado').first().json;\nreturn [{ json: { respuesta: r.respuesta, acciones_locales: r.acciones_locales } }];"
+      }
     },
     {
       "id": "10-tool-crear-tarea",
       "name": "crear_tarea",
       "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
       "typeVersion": 2,
-      "position": [680, 220],
+      "position": [
+        680,
+        220
+      ],
       "parameters": {
         "name": "crear_tarea",
         "description": "Crea una tarea o pendiente de Rodri. Úsala cuando pida recordar, anotar o agregar algo por hacer (\"recuérdame...\", \"anota que tengo que...\"). NO la uses para eventos con hora fija en el calendario ni para alarmas. Si no dice fecha, créala sin fecha; no preguntes por ella.",
-        "workflowId": { "__rl": true, "value": "fico20tareas", "mode": "id" },
+        "workflowId": {
+          "__rl": true,
+          "value": "fico20tareas",
+          "mode": "id"
+        },
         "workflowInputs": {
           "mappingMode": "defineBelow",
           "value": {
@@ -91,12 +183,60 @@
           },
           "matchingColumns": [],
           "schema": [
-            { "id": "accion", "displayName": "accion", "required": false, "defaultMatch": false, "display": true, "canBeUsedToMatch": true, "type": "string" },
-            { "id": "user_id", "displayName": "user_id", "required": false, "defaultMatch": false, "display": true, "canBeUsedToMatch": true, "type": "number" },
-            { "id": "titulo", "displayName": "titulo", "required": false, "defaultMatch": false, "display": true, "canBeUsedToMatch": true, "type": "string" },
-            { "id": "notas", "displayName": "notas", "required": false, "defaultMatch": false, "display": true, "canBeUsedToMatch": true, "type": "string" },
-            { "id": "vence", "displayName": "vence", "required": false, "defaultMatch": false, "display": true, "canBeUsedToMatch": true, "type": "string" },
-            { "id": "tarea_id", "displayName": "tarea_id", "required": false, "defaultMatch": false, "display": true, "canBeUsedToMatch": true, "type": "number" }
+            {
+              "id": "accion",
+              "displayName": "accion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "user_id",
+              "displayName": "user_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "titulo",
+              "displayName": "titulo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "notas",
+              "displayName": "notas",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "vence",
+              "displayName": "vence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "tarea_id",
+              "displayName": "tarea_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            }
           ],
           "attemptToConvertTypes": false,
           "convertFieldsToString": false
@@ -108,11 +248,18 @@
       "name": "listar_tareas",
       "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
       "typeVersion": 2,
-      "position": [840, 220],
+      "position": [
+        850,
+        220
+      ],
       "parameters": {
         "name": "listar_tareas",
         "description": "Devuelve las tareas pendientes de Rodri con su id y fecha límite. Úsala cuando pregunte qué tiene pendiente o por hacer, y antes de completar una tarea si no sabes cuál es. NO la uses para eventos del calendario.",
-        "workflowId": { "__rl": true, "value": "fico20tareas", "mode": "id" },
+        "workflowId": {
+          "__rl": true,
+          "value": "fico20tareas",
+          "mode": "id"
+        },
         "workflowInputs": {
           "mappingMode": "defineBelow",
           "value": {
@@ -125,12 +272,60 @@
           },
           "matchingColumns": [],
           "schema": [
-            { "id": "accion", "displayName": "accion", "required": false, "defaultMatch": false, "display": true, "canBeUsedToMatch": true, "type": "string" },
-            { "id": "user_id", "displayName": "user_id", "required": false, "defaultMatch": false, "display": true, "canBeUsedToMatch": true, "type": "number" },
-            { "id": "titulo", "displayName": "titulo", "required": false, "defaultMatch": false, "display": true, "canBeUsedToMatch": true, "type": "string" },
-            { "id": "notas", "displayName": "notas", "required": false, "defaultMatch": false, "display": true, "canBeUsedToMatch": true, "type": "string" },
-            { "id": "vence", "displayName": "vence", "required": false, "defaultMatch": false, "display": true, "canBeUsedToMatch": true, "type": "string" },
-            { "id": "tarea_id", "displayName": "tarea_id", "required": false, "defaultMatch": false, "display": true, "canBeUsedToMatch": true, "type": "number" }
+            {
+              "id": "accion",
+              "displayName": "accion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "user_id",
+              "displayName": "user_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "titulo",
+              "displayName": "titulo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "notas",
+              "displayName": "notas",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "vence",
+              "displayName": "vence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "tarea_id",
+              "displayName": "tarea_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            }
           ],
           "attemptToConvertTypes": false,
           "convertFieldsToString": false
@@ -142,11 +337,18 @@
       "name": "completar_tarea",
       "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
       "typeVersion": 2,
-      "position": [1000, 220],
+      "position": [
+        1020,
+        220
+      ],
       "parameters": {
         "name": "completar_tarea",
         "description": "Marca como hecha una tarea pendiente. Úsala cuando Rodri diga que ya hizo o terminó algo. Pasa el id si lo conoces (de listar_tareas); si no, pasa una parte del título. Si la herramienta responde que hay varias coincidencias, pregunta cuál. NO la uses para borrar tareas ni para ítems del checklist diario.",
-        "workflowId": { "__rl": true, "value": "fico20tareas", "mode": "id" },
+        "workflowId": {
+          "__rl": true,
+          "value": "fico20tareas",
+          "mode": "id"
+        },
         "workflowInputs": {
           "mappingMode": "defineBelow",
           "value": {
@@ -159,12 +361,60 @@
           },
           "matchingColumns": [],
           "schema": [
-            { "id": "accion", "displayName": "accion", "required": false, "defaultMatch": false, "display": true, "canBeUsedToMatch": true, "type": "string" },
-            { "id": "user_id", "displayName": "user_id", "required": false, "defaultMatch": false, "display": true, "canBeUsedToMatch": true, "type": "number" },
-            { "id": "titulo", "displayName": "titulo", "required": false, "defaultMatch": false, "display": true, "canBeUsedToMatch": true, "type": "string" },
-            { "id": "notas", "displayName": "notas", "required": false, "defaultMatch": false, "display": true, "canBeUsedToMatch": true, "type": "string" },
-            { "id": "vence", "displayName": "vence", "required": false, "defaultMatch": false, "display": true, "canBeUsedToMatch": true, "type": "string" },
-            { "id": "tarea_id", "displayName": "tarea_id", "required": false, "defaultMatch": false, "display": true, "canBeUsedToMatch": true, "type": "number" }
+            {
+              "id": "accion",
+              "displayName": "accion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "user_id",
+              "displayName": "user_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "titulo",
+              "displayName": "titulo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "notas",
+              "displayName": "notas",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "vence",
+              "displayName": "vence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "tarea_id",
+              "displayName": "tarea_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            }
           ],
           "attemptToConvertTypes": false,
           "convertFieldsToString": false
@@ -172,52 +422,900 @@
       }
     },
     {
-      "id": "10-resultado",
-      "name": "Resultado",
-      "type": "n8n-nodes-base.code",
+      "id": "10-tool-recordar_hecho",
+      "name": "recordar_hecho",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
       "typeVersion": 2,
-      "position": [800, 0],
-      "notes": "Arma la respuesta y la fila de agent_logs. Tokens y costo quedan pendientes (hito H).",
+      "position": [
+        1190,
+        220
+      ],
       "parameters": {
-        "jsCode": "const e = $('Inicio').first().json;\nconst a = $input.first().json;\nconst tools = (a.intermediateSteps ?? []).map(s => s.action?.tool).filter(Boolean);\nconst error = a.error ? String(a.error.message ?? a.error).slice(0, 1000) : null;\nconst respuesta = a.output || 'Tuve un problema para responder. Intenta de nuevo en un minuto.';\nconst latencia = e.timestamp ? Date.now() - Date.parse(e.timestamp) : null;\n\nreturn [{ json: {\n  respuesta,\n  acciones_locales: [],\n  log: [e.session_id ?? null, e.canal ?? null, e.texto ?? '', JSON.stringify(tools), respuesta, latencia, error],\n} }];"
+        "name": "recordar_hecho",
+        "description": "Guarda en la memoria permanente un dato duradero sobre Rodri (gustos, datos personales, preferencias). Úsala solo cuando él pida recordar algo de forma permanente (\"recuerda que...\", \"no olvides que soy...\") o cuando diga algo claramente duradero. NO la uses para pendientes con fecha (eso es crear_tarea) ni para cosas del momento.",
+        "workflowId": {
+          "__rl": true,
+          "value": "fico21datos",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "user_id": "={{ $('Inicio').first().json.user_id }}",
+            "canal": "={{ $('Inicio').first().json.canal }}",
+            "accion": "memoria.recordar",
+            "texto": "={{ $fromAI('hecho', 'El dato a recordar, en una frase completa', 'string') }}",
+            "categoria": "={{ $fromAI('categoria', 'Categoría corta: salud, trabajo, gustos, familia... Cadena vacía si no aplica', 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "user_id",
+              "displayName": "user_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "canal",
+              "displayName": "canal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "accion",
+              "displayName": "accion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "texto",
+              "displayName": "texto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "categoria",
+              "displayName": "categoria",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
       }
     },
     {
-      "id": "10-registrar",
-      "name": "Registrar",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [1020, 0],
-      "alwaysOutputData": true,
+      "id": "10-tool-consultar_perfil",
+      "name": "consultar_perfil",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        220
+      ],
       "parameters": {
-        "operation": "executeQuery",
-        "query": "insert into agent_logs (session_id, canal, input, tools_llamadas, output, latencia_ms, error) values ($1, $2, $3, $4::jsonb, $5, $6, $7)",
-        "options": { "queryReplacement": "={{ $json.log }}" }
-      },
-      "credentials": { "postgres": { "id": "ROE3CmF5P4ooMVqT", "name": "Postgres account" } }
+        "name": "consultar_perfil",
+        "description": "Devuelve todo lo guardado en la memoria permanente sobre Rodri. El perfil ya viene resumido al inicio de la conversación; úsala solo si él pregunta qué sabes de él o qué tienes guardado.",
+        "workflowId": {
+          "__rl": true,
+          "value": "fico21datos",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "user_id": "={{ $('Inicio').first().json.user_id }}",
+            "canal": "={{ $('Inicio').first().json.canal }}",
+            "accion": "memoria.perfil"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "user_id",
+              "displayName": "user_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "canal",
+              "displayName": "canal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "accion",
+              "displayName": "accion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      }
     },
     {
-      "id": "10-salida",
-      "name": "Salida",
-      "type": "n8n-nodes-base.code",
+      "id": "10-tool-ver_checklist_hoy",
+      "name": "ver_checklist_hoy",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
       "typeVersion": 2,
-      "position": [1240, 0],
+      "position": [
+        1530,
+        220
+      ],
       "parameters": {
-        "jsCode": "const r = $('Resultado').first().json;\nreturn [{ json: { respuesta: r.respuesta, acciones_locales: r.acciones_locales } }];"
+        "name": "ver_checklist_hoy",
+        "description": "Devuelve los ítems del checklist diario de hoy (áreas Espiritual, Vida, Gym, Alimentación) y cuáles ya están cumplidos. Úsala cuando pregunte cómo va su día, qué hábitos le faltan o por su checklist. NO la uses para tareas pendientes (eso es listar_tareas).",
+        "workflowId": {
+          "__rl": true,
+          "value": "fico21datos",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "user_id": "={{ $('Inicio').first().json.user_id }}",
+            "canal": "={{ $('Inicio').first().json.canal }}",
+            "accion": "checklist.ver"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "user_id",
+              "displayName": "user_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "canal",
+              "displayName": "canal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "accion",
+              "displayName": "accion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      }
+    },
+    {
+      "id": "10-tool-marcar_item",
+      "name": "marcar_item",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2,
+      "position": [
+        680,
+        380
+      ],
+      "parameters": {
+        "name": "marcar_item",
+        "description": "Marca un ítem del checklist diario de hoy como cumplido o no cumplido. Úsala cuando diga que ya hizo (o que no hizo) un hábito del checklist. Pasa el id si lo conoces (de ver_checklist_hoy); si no, parte del título. NO la uses para tareas (eso es completar_tarea).",
+        "workflowId": {
+          "__rl": true,
+          "value": "fico21datos",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "user_id": "={{ $('Inicio').first().json.user_id }}",
+            "canal": "={{ $('Inicio').first().json.canal }}",
+            "accion": "checklist.marcar",
+            "item_id": "={{ $fromAI('item_id', 'Id numérico del ítem. 0 si no se conoce', 'number') }}",
+            "texto": "={{ $fromAI('titulo', 'Parte del título del ítem. Cadena vacía si se pasa item_id', 'string') }}",
+            "cumplido": "={{ $fromAI('cumplido', 'true si lo cumplió, false si no', 'boolean') }}",
+            "nota": "={{ $fromAI('nota', 'Comentario opcional. Cadena vacía si no hay', 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "user_id",
+              "displayName": "user_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "canal",
+              "displayName": "canal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "accion",
+              "displayName": "accion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "item_id",
+              "displayName": "item_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "texto",
+              "displayName": "texto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "cumplido",
+              "displayName": "cumplido",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "boolean"
+            },
+            {
+              "id": "nota",
+              "displayName": "nota",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      }
+    },
+    {
+      "id": "10-tool-ver_rutina_dia",
+      "name": "ver_rutina_dia",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2,
+      "position": [
+        850,
+        380
+      ],
+      "parameters": {
+        "name": "ver_rutina_dia",
+        "description": "Devuelve la rutina de gym planeada para un día. Úsala cuando pregunte qué le toca entrenar. Sin día específico, usa 0 para hoy.",
+        "workflowId": {
+          "__rl": true,
+          "value": "fico21datos",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "user_id": "={{ $('Inicio').first().json.user_id }}",
+            "canal": "={{ $('Inicio').first().json.canal }}",
+            "accion": "gym.rutina",
+            "dia_semana": "={{ $fromAI('dia_semana', 'Día: 1 lunes, 2 martes, 3 miércoles, 4 jueves, 5 viernes, 6 sábado, 7 domingo. 0 para hoy', 'number') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "user_id",
+              "displayName": "user_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "canal",
+              "displayName": "canal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "accion",
+              "displayName": "accion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "dia_semana",
+              "displayName": "dia_semana",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      }
+    },
+    {
+      "id": "10-tool-registrar_entreno",
+      "name": "registrar_entreno",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2,
+      "position": [
+        1020,
+        380
+      ],
+      "parameters": {
+        "name": "registrar_entreno",
+        "description": "Registra un ejercicio que Rodri ya hizo hoy en el gym. Úsala solo si dijo al menos el ejercicio; un ejercicio por llamada. Si no dijo series, repeticiones o peso, pásalos en 0 o vacío; no los inventes.",
+        "workflowId": {
+          "__rl": true,
+          "value": "fico21datos",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "user_id": "={{ $('Inicio').first().json.user_id }}",
+            "canal": "={{ $('Inicio').first().json.canal }}",
+            "accion": "gym.registrar",
+            "ejercicio": "={{ $fromAI('ejercicio', 'Nombre del ejercicio', 'string') }}",
+            "series": "={{ $fromAI('series', 'Número de series. 0 si no se dijo', 'number') }}",
+            "reps": "={{ $fromAI('reps', 'Repeticiones, por ejemplo 10 o 8-10. Cadena vacía si no se dijo', 'string') }}",
+            "peso": "={{ $fromAI('peso', 'Peso en kg. 0 si no se dijo', 'number') }}",
+            "nota": "={{ $fromAI('nota', 'Comentario opcional. Cadena vacía si no hay', 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "user_id",
+              "displayName": "user_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "canal",
+              "displayName": "canal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "accion",
+              "displayName": "accion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "ejercicio",
+              "displayName": "ejercicio",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "series",
+              "displayName": "series",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "reps",
+              "displayName": "reps",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "peso",
+              "displayName": "peso",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "nota",
+              "displayName": "nota",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      }
+    },
+    {
+      "id": "10-tool-crear_alarma",
+      "name": "crear_alarma",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2,
+      "position": [
+        1190,
+        380
+      ],
+      "parameters": {
+        "name": "crear_alarma",
+        "description": "Crea una alarma en el iPhone de Rodri. Úsala solo si dio la hora; si falta la hora, pregunta. Convierte la hora a formato de 24 horas HH:MM. NO la uses para recordatorios con fecha de otro día (eso es crear_tarea) ni para cuentas regresivas (eso es iniciar_temporizador).",
+        "workflowId": {
+          "__rl": true,
+          "value": "fico21datos",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "user_id": "={{ $('Inicio').first().json.user_id }}",
+            "canal": "={{ $('Inicio').first().json.canal }}",
+            "accion": "local.alarma",
+            "hora": "={{ $fromAI('hora', 'Hora en formato de 24 horas HH:MM, por ejemplo 06:30', 'string') }}",
+            "etiqueta": "={{ $fromAI('etiqueta', 'Nombre corto de la alarma, por ejemplo Gym. Cadena vacía si no se dijo', 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "user_id",
+              "displayName": "user_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "canal",
+              "displayName": "canal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "accion",
+              "displayName": "accion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "hora",
+              "displayName": "hora",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "etiqueta",
+              "displayName": "etiqueta",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      }
+    },
+    {
+      "id": "10-tool-iniciar_temporizador",
+      "name": "iniciar_temporizador",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        380
+      ],
+      "parameters": {
+        "name": "iniciar_temporizador",
+        "description": "Inicia un temporizador (cuenta regresiva) en el iPhone de Rodri. Úsala solo si dijo la duración; conviértela a minutos. NO la uses para una hora fija del día (eso es crear_alarma).",
+        "workflowId": {
+          "__rl": true,
+          "value": "fico21datos",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "user_id": "={{ $('Inicio').first().json.user_id }}",
+            "canal": "={{ $('Inicio').first().json.canal }}",
+            "accion": "local.temporizador",
+            "minutos": "={{ $fromAI('minutos', 'Duración en minutos, entero entre 1 y 1440', 'number') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "user_id",
+              "displayName": "user_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "canal",
+              "displayName": "canal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "accion",
+              "displayName": "accion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "minutos",
+              "displayName": "minutos",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      }
+    },
+    {
+      "id": "10-tool-estado_fico",
+      "name": "estado_fico",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2,
+      "position": [
+        1530,
+        380
+      ],
+      "parameters": {
+        "name": "estado_fico",
+        "description": "Devuelve el estado del sistema FICO: peticiones de hoy, errores recientes, tareas pendientes, aprobaciones en espera y costo del mes. Úsala cuando pregunte cómo está FICO, si todo funciona o cuánto ha gastado.",
+        "workflowId": {
+          "__rl": true,
+          "value": "fico21datos",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "user_id": "={{ $('Inicio').first().json.user_id }}",
+            "canal": "={{ $('Inicio').first().json.canal }}",
+            "accion": "sistema.estado"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "user_id",
+              "displayName": "user_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "canal",
+              "displayName": "canal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "accion",
+              "displayName": "accion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
       }
     }
   ],
   "connections": {
-    "Inicio": { "main": [[{ "node": "Contexto", "type": "main", "index": 0 }]] },
-    "Contexto": { "main": [[{ "node": "FICO", "type": "main", "index": 0 }]] },
-    "FICO": { "main": [[{ "node": "Resultado", "type": "main", "index": 0 }]] },
-    "Resultado": { "main": [[{ "node": "Registrar", "type": "main", "index": 0 }]] },
-    "Registrar": { "main": [[{ "node": "Salida", "type": "main", "index": 0 }]] },
-    "Gemini": { "ai_languageModel": [[{ "node": "FICO", "type": "ai_languageModel", "index": 0 }]] },
-    "Memoria": { "ai_memory": [[{ "node": "FICO", "type": "ai_memory", "index": 0 }]] },
-    "crear_tarea": { "ai_tool": [[{ "node": "FICO", "type": "ai_tool", "index": 0 }]] },
-    "listar_tareas": { "ai_tool": [[{ "node": "FICO", "type": "ai_tool", "index": 0 }]] },
-    "completar_tarea": { "ai_tool": [[{ "node": "FICO", "type": "ai_tool", "index": 0 }]] }
+    "Inicio": {
+      "main": [
+        [
+          {
+            "node": "Contexto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Contexto": {
+      "main": [
+        [
+          {
+            "node": "FICO",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FICO": {
+      "main": [
+        [
+          {
+            "node": "Resultado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resultado": {
+      "main": [
+        [
+          {
+            "node": "Registrar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar": {
+      "main": [
+        [
+          {
+            "node": "Salida",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "FICO",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memoria": {
+      "ai_memory": [
+        [
+          {
+            "node": "FICO",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "crear_tarea": {
+      "ai_tool": [
+        [
+          {
+            "node": "FICO",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "listar_tareas": {
+      "ai_tool": [
+        [
+          {
+            "node": "FICO",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "completar_tarea": {
+      "ai_tool": [
+        [
+          {
+            "node": "FICO",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "recordar_hecho": {
+      "ai_tool": [
+        [
+          {
+            "node": "FICO",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "consultar_perfil": {
+      "ai_tool": [
+        [
+          {
+            "node": "FICO",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ver_checklist_hoy": {
+      "ai_tool": [
+        [
+          {
+            "node": "FICO",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "marcar_item": {
+      "ai_tool": [
+        [
+          {
+            "node": "FICO",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ver_rutina_dia": {
+      "ai_tool": [
+        [
+          {
+            "node": "FICO",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "registrar_entreno": {
+      "ai_tool": [
+        [
+          {
+            "node": "FICO",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "crear_alarma": {
+      "ai_tool": [
+        [
+          {
+            "node": "FICO",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "iniciar_temporizador": {
+      "ai_tool": [
+        [
+          {
+            "node": "FICO",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "estado_fico": {
+      "ai_tool": [
+        [
+          {
+            "node": "FICO",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "settings": { "executionOrder": "v1", "errorWorkflow": "fico00errores" }
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "fico00errores"
+  }
 }

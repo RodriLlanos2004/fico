@@ -1,0 +1,227 @@
+{
+  "id": "fico21datos",
+  "name": "FICO - 21 - Tools Datos personales",
+  "active": false,
+  "nodes": [
+    {
+      "id": "21-inicio",
+      "name": "Inicio",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "accion"
+            },
+            {
+              "name": "user_id",
+              "type": "number"
+            },
+            {
+              "name": "canal"
+            },
+            {
+              "name": "texto"
+            },
+            {
+              "name": "categoria"
+            },
+            {
+              "name": "item_id",
+              "type": "number"
+            },
+            {
+              "name": "cumplido",
+              "type": "boolean"
+            },
+            {
+              "name": "nota"
+            },
+            {
+              "name": "dia_semana",
+              "type": "number"
+            },
+            {
+              "name": "ejercicio"
+            },
+            {
+              "name": "series",
+              "type": "number"
+            },
+            {
+              "name": "reps"
+            },
+            {
+              "name": "peso",
+              "type": "number"
+            },
+            {
+              "name": "hora"
+            },
+            {
+              "name": "etiqueta"
+            },
+            {
+              "name": "minutos",
+              "type": "number"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "21-preparar",
+      "name": "Preparar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "notes": "Memoria, checklist, gym, acciones locales y estado. Valida entradas y elige la consulta. SQL fijo y parametrizado.",
+      "parameters": {
+        "jsCode": "const i = $input.first().json;\nconst accion = String(i.accion ?? '');\nconst user_id = Number(i.user_id);\nconst canal = String(i.canal ?? '');\nconst s = (v, max) => String(v ?? '').trim().slice(0, max);\nconst n = (v) => Number(v) || 0;\nconst HOY = \"(now() at time zone 'America/Mexico_City')::date\";\nconst DOW = \"extract(isodow from now() at time zone 'America/Mexico_City')::int\";\n\n// Si la validacion falla se corre esta consulta inofensiva y el error viaja a Formato.\nlet sql = \"select '[]'::json as filas, 0 as coincidencias\";\nlet params = [];\nlet error = null;\nlet entrada = {};\n\nconst local = (obj) => {\n  entrada = obj;\n  if (canal === 'telegram') {\n    // Por Telegram no se puede tocar el iPhone: se guarda y la aplica el atajo \"FICO acciones\".\n    sql = \"insert into pending_local_actions (user_id, accion) values ($1, $2::jsonb) returning json_build_array(accion) as filas, 1 as coincidencias\";\n    params = [user_id, JSON.stringify(obj)];\n  } else {\n    sql = \"select json_build_array($1::json) as filas, 1 as coincidencias\";\n    params = [JSON.stringify(obj)];\n  }\n};\n\nif (!Number.isInteger(user_id) || user_id <= 0) {\n  error = 'user_id inválido';\n} else if (accion === 'memoria.recordar') {\n  const hecho = s(i.texto, 500);\n  entrada = { hecho, categoria: s(i.categoria, 50) };\n  if (!hecho) error = 'Falta el hecho a recordar';\n  else {\n    sql = \"with n as (insert into memory_facts (user_id, categoria, hecho) values ($1, nullif($2, ''), $3) returning id, hecho) select coalesce(json_agg(n), '[]'::json) as filas, 1 as coincidencias from n\";\n    params = [user_id, entrada.categoria, hecho];\n  }\n} else if (accion === 'memoria.perfil') {\n  sql = \"select coalesce(json_agg(t), '[]'::json) as filas, 0 as coincidencias from (select id, categoria, hecho from memory_facts where user_id = $1 order by id) t\";\n  params = [user_id];\n} else if (accion === 'checklist.ver') {\n  sql = \"select coalesce(json_agg(t), '[]'::json) as filas, 0 as coincidencias from (select i.id, i.area, i.titulo, l.cumplido from checklist_items i left join checklist_logs l on l.item_id = i.id and l.fecha = \" + HOY + \" where i.user_id = $1 and i.activo and \" + DOW + \" = any(i.dias_semana) order by i.area, i.orden) t\";\n  params = [user_id];\n} else if (accion === 'checklist.marcar') {\n  const item_id = n(i.item_id);\n  const titulo = s(i.texto, 200);\n  const cumplido = i.cumplido === true || String(i.cumplido).toLowerCase() === 'true';\n  entrada = { item_id, titulo, cumplido, nota: s(i.nota, 300) };\n  if (!item_id && !titulo) error = 'Indica el id o parte del título del ítem';\n  else {\n    // Solo marca si hay exactamente una coincidencia.\n    sql = \"with c as (select id, titulo from checklist_items where user_id = $1 and activo and (($2::bigint > 0 and id = $2::bigint) or ($2::bigint = 0 and titulo ilike '%' || $3 || '%'))), u as (insert into checklist_logs (item_id, fecha, cumplido, nota) select id, \" + HOY + \", $4::boolean, nullif($5, '') from c where (select count(*) from c) = 1 on conflict (item_id, fecha) do update set cumplido = excluded.cumplido, nota = excluded.nota, respondido_en = now() returning item_id) select coalesce((select json_agg(c) from c where (select count(*) from u) = 1), '[]'::json) as filas, (select count(*) from c)::int as coincidencias\";\n    params = [user_id, item_id, titulo, cumplido, entrada.nota];\n  }\n} else if (accion === 'gym.rutina') {\n  const dia = n(i.dia_semana);\n  entrada = { dia_semana: dia };\n  sql = \"select coalesce(json_agg(t), '[]'::json) as filas, 0 as coincidencias from (select grupo, ejercicio, series, reps, peso_obj from gym_plan where user_id = $1 and dia_semana = case when $2::int between 1 and 7 then $2::int else \" + DOW + \" end order by orden) t\";\n  params = [user_id, dia];\n} else if (accion === 'gym.registrar') {\n  const ejercicio = s(i.ejercicio, 100);\n  entrada = { ejercicio, series: Math.trunc(n(i.series)), reps: s(i.reps, 20), peso: n(i.peso), nota: s(i.nota, 300) };\n  if (!ejercicio) error = 'Falta el nombre del ejercicio';\n  else if (entrada.series < 0 || entrada.series > 50 || entrada.peso < 0 || entrada.peso > 1000) error = 'Series o peso fuera de rango';\n  else {\n    sql = \"with n as (insert into gym_logs (user_id, fecha, ejercicio, series, reps, peso, nota) values ($1, \" + HOY + \", $2, nullif($3::int, 0), nullif($4, ''), nullif($5::numeric, 0), nullif($6, '')) returning id, ejercicio, series, reps, peso) select coalesce(json_agg(n), '[]'::json) as filas, 1 as coincidencias from n\";\n    params = [user_id, ejercicio, entrada.series, entrada.reps, entrada.peso, entrada.nota];\n  }\n} else if (accion === 'local.alarma') {\n  const m = s(i.hora, 5).match(/^(\\d{1,2}):(\\d{2})$/);\n  if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) error = 'La hora debe tener formato HH:MM de 24 horas';\n  else local({ tipo: 'alarma', hora: m[1].padStart(2, '0') + ':' + m[2], etiqueta: s(i.etiqueta, 60) || 'FICO' });\n} else if (accion === 'local.temporizador') {\n  const minutos = Math.trunc(n(i.minutos));\n  if (minutos < 1 || minutos > 1440) error = 'Los minutos deben estar entre 1 y 1440';\n  else local({ tipo: 'temporizador', minutos });\n} else if (accion === 'sistema.estado') {\n  sql = \"select json_build_array(json_build_object('tareas_pendientes', (select count(*) from tasks where user_id = $1 and estado = 'pendiente'), 'peticiones_hoy', (select count(*) from agent_logs where canal in ('telegram', 'siri') and (created_at at time zone 'America/Mexico_City')::date = \" + HOY + \"), 'errores_24h', (select count(*) from agent_logs where error is not null and created_at > now() - interval '24 hours'), 'aprobaciones_pendientes', (select count(*) from pending_actions where estado = 'pendiente' and expires_at > now()), 'costo_mes_usd', (select coalesce(sum(costo_usd), 0) from agent_logs where created_at >= date_trunc('month', now())))) as filas, 0 as coincidencias\";\n  params = [user_id];\n} else {\n  error = 'Acción desconocida: ' + accion;\n}\n\nreturn [{ json: { accion, canal, entrada, sql, params, error } }];"
+      }
+    },
+    {
+      "id": "21-ejecutar",
+      "name": "Ejecutar",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.sql }}",
+        "options": {
+          "queryReplacement": "={{ $json.params }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "ROE3CmF5P4ooMVqT",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "id": "21-formato",
+      "name": "Formato",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "notes": "Arma el contrato { ok, data, resumen, error }.",
+      "parameters": {
+        "jsCode": "const p = $('Preparar').first().json;\nconst r = $input.first().json;\nconst filas = Array.isArray(r.filas) ? r.filas : [];\nconst a = p.accion;\nlet ok = !p.error;\nlet error = p.error;\nlet resumen = '';\n\nif (ok) {\n  if (a === 'memoria.recordar') resumen = 'Guardado en memoria: ' + filas[0].hecho;\n  else if (a === 'memoria.perfil') resumen = filas.length ? filas.length + ' dato(s) en el perfil' : 'El perfil está vacío';\n  else if (a === 'checklist.ver') {\n    const hechos = filas.filter(f => f.cumplido === true).length;\n    resumen = filas.length ? hechos + ' de ' + filas.length + ' ítems cumplidos hoy' : 'No hay ítems de checklist para hoy';\n  } else if (a === 'checklist.marcar') {\n    if (filas.length === 1) resumen = '\"' + filas[0].titulo + '\" marcado como ' + (p.entrada.cumplido ? 'cumplido' : 'no cumplido');\n    else {\n      ok = false;\n      error = r.coincidencias === 0 ? 'No encontré un ítem del checklist que coincida' : 'Hay ' + r.coincidencias + ' ítems que coinciden; pide al usuario que precise cuál';\n    }\n  } else if (a === 'gym.rutina') resumen = filas.length ? 'Rutina de ' + filas[0].grupo + ': ' + filas.length + ' ejercicio(s)' : 'Ese día no hay rutina (descanso)';\n  else if (a === 'gym.registrar') resumen = 'Entreno registrado: ' + filas[0].ejercicio;\n  else if (a === 'local.alarma' || a === 'local.temporizador') {\n    const que = a === 'local.alarma' ? 'Alarma de las ' + filas[0].hora : 'Temporizador de ' + filas[0].minutos + ' minuto(s)';\n    resumen = p.canal === 'telegram' ? que + ' en espera: se aplica en el iPhone cuando Rodri toque el botón del mensaje' : que + ' lista';\n  } else if (a === 'sistema.estado') resumen = 'FICO funcionando. ' + filas[0].peticiones_hoy + ' peticiones hoy, ' + filas[0].errores_24h + ' errores en 24 horas, ' + filas[0].tareas_pendientes + ' tareas pendientes';\n}\nif (!ok) resumen = error;\n\nreturn [{ json: {\n  respuesta: { ok, data: filas, resumen, error: ok ? null : error },\n  log: [JSON.stringify(p.entrada), JSON.stringify([a]), resumen, ok ? null : error],\n} }];"
+      }
+    },
+    {
+      "id": "21-log",
+      "name": "Log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        880,
+        0
+      ],
+      "alwaysOutputData": true,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into agent_logs (canal, input, tools_llamadas, output, error) values ('tool', $1, $2::jsonb, $3, $4)",
+        "options": {
+          "queryReplacement": "={{ $json.log }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "ROE3CmF5P4ooMVqT",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "id": "21-salida",
+      "name": "Salida",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "jsCode": "return [{ json: $('Formato').first().json.respuesta }];"
+      }
+    }
+  ],
+  "connections": {
+    "Inicio": {
+      "main": [
+        [
+          {
+            "node": "Preparar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar": {
+      "main": [
+        [
+          {
+            "node": "Ejecutar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ejecutar": {
+      "main": [
+        [
+          {
+            "node": "Formato",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formato": {
+      "main": [
+        [
+          {
+            "node": "Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log": {
+      "main": [
+        [
+          {
+            "node": "Salida",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "fico00errores"
+  }
+}

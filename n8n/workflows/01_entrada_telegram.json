@@ -265,8 +265,8 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        1980,
-        0
+        2200,
+        100
       ],
       "parameters": {
         "chatId": "={{ $('Normalizar').first().json.chat_id }}",
@@ -283,6 +283,82 @@
         }
       },
       "notes": "El nodo de Telegram siempre aplica un formato; se usa HTML con el texto escapado para que cualquier caracter del modelo llegue tal cual."
+    },
+    {
+      "id": "01-if-locales",
+      "name": "Hay acciones locales",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1980,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-locales",
+              "leftValue": "={{ ($json.acciones_locales ?? []).length > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "01-responder-boton",
+      "name": "Responder con botón",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2200,
+        -100
+      ],
+      "parameters": {
+        "chatId": "={{ $('Normalizar').first().json.chat_id }}",
+        "text": "={{ String($json.respuesta ?? \"No tengo respuesta.\").slice(0, 3500).replace(/&/g, \"&amp;\").replace(/</g, \"&lt;\").replace(/>/g, \"&gt;\") }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        },
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "Aplicar en el iPhone",
+                    "additionalFields": {
+                      "url": "={{ $execution.resumeUrl.split('/webhook-waiting')[0] + '/webhook/fico/abrir' }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "a2udst62qyqNrKrY",
+          "name": "Telegram account"
+        }
+      },
+      "notes": "Telegram solo acepta botones https, asi que el boton apunta al webhook /fico/abrir, que redirige al atajo \"FICO acciones\"."
     }
   ],
   "connections": {
@@ -384,6 +460,24 @@
     },
     "Llamar agente": {
       "main": [
+        [
+          {
+            "node": "Hay acciones locales",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hay acciones locales": {
+      "main": [
+        [
+          {
+            "node": "Responder con botón",
+            "type": "main",
+            "index": 0
+          }
+        ],
         [
           {
             "node": "Responder",

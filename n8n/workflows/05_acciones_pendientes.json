@@ -1,0 +1,149 @@
+{
+  "id": "fico05acciones",
+  "name": "FICO - 05 - Acciones pendientes iPhone",
+  "active": false,
+  "nodes": [
+    {
+      "id": "05-1",
+      "name": "Webhook pendientes",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "f1c00051-0000-4000-8000-000000000002",
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "fico/acciones-pendientes",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "6DDv1IJVvPl4Zsq8",
+          "name": "FICO Siri"
+        }
+      }
+    },
+    {
+      "id": "05-entregar",
+      "name": "Entregar y marcar",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with a as (update pending_local_actions set aplicada = true, aplicada_en = now() where not aplicada and created_at > now() - interval '1 day' returning accion) select coalesce(json_agg(accion), '[]'::json) as acciones from a",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "ROE3CmF5P4ooMVqT",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "id": "05-responder",
+      "name": "Responder",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ respuesta: $json.acciones.length ? 'Listo, apliqué ' + $json.acciones.length + ' acción(es).' : 'No hay acciones pendientes.', acciones_locales: $json.acciones }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "05-2",
+      "name": "Webhook abrir",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        200
+      ],
+      "webhookId": "f1c00052-0000-4000-8000-000000000002",
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "fico/abrir",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "notes": "Sin token a proposito: no entrega datos, solo redirige al atajo."
+    },
+    {
+      "id": "05-redirigir",
+      "name": "Redirigir al atajo",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        220,
+        200
+      ],
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 302,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Location",
+                "value": "shortcuts://run-shortcut?name=FICO%20acciones"
+              }
+            ]
+          }
+        }
+      },
+      "notes": "302 manual: la opcion Redirect del nodo solo acepta http/https."
+    }
+  ],
+  "connections": {
+    "Webhook pendientes": {
+      "main": [
+        [
+          {
+            "node": "Entregar y marcar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Entregar y marcar": {
+      "main": [
+        [
+          {
+            "node": "Responder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook abrir": {
+      "main": [
+        [
+          {
+            "node": "Redirigir al atajo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "fico00errores"
+  }
+}

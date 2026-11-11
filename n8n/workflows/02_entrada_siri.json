@@ -1,0 +1,148 @@
+{
+  "id": "fico02siri",
+  "name": "FICO - 02 - Entrada Siri",
+  "active": false,
+  "nodes": [
+    {
+      "id": "02-1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "f1c00021-0000-4000-8000-000000000002",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "fico",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "6DDv1IJVvPl4Zsq8",
+          "name": "FICO Siri"
+        }
+      }
+    },
+    {
+      "id": "02-usuario",
+      "name": "Usuario",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select id as user_id from users order by id limit 1",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "ROE3CmF5P4ooMVqT",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "id": "02-normalizar",
+      "name": "Normalizar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const body = $('Webhook').first().json.body ?? {};\nconst user_id = $input.first().json.user_id;\nconst texto = String(body.texto ?? '').trim().slice(0, 1000);\nreturn [{ json: {\n  user_id,\n  canal: 'siri',\n  tipo: 'texto',\n  texto: texto || 'Hola',\n  session_id: 'siri-' + user_id,\n  timestamp: new Date().toISOString(),\n} }];"
+      }
+    },
+    {
+      "id": "02-agente",
+      "name": "Llamar agente",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "fico10agente",
+          "mode": "id"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "02-responder",
+      "name": "Responder",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ respuesta: $json.respuesta, acciones_locales: $json.acciones_locales ?? [] }) }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Usuario",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Usuario": {
+      "main": [
+        [
+          {
+            "node": "Normalizar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar": {
+      "main": [
+        [
+          {
+            "node": "Llamar agente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Llamar agente": {
+      "main": [
+        [
+          {
+            "node": "Responder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "fico00errores"
+  }
+}
