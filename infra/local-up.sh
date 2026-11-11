@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Levanta FICO en la laptop. Correr despues de cada reinicio: bash infra/local-up.sh
-# El tunel gratuito da una URL nueva cada vez; n8n se recrea con esa URL y vuelve a
-# registrar el webhook de Telegram solo. La URL de Siri hay que actualizarla en el atajo.
+# El tunel gratuito da una URL nueva cada vez; n8n se recrea con esa URL y rehook.sh
+# vuelve a registrar el webhook de Telegram. La URL de Siri hay que actualizarla en el atajo.
 set -euo pipefail
 cd "$(dirname "$0")"
 docker info >/dev/null 2>&1 || { echo "Docker no esta corriendo. Abre Docker Desktop, espera a que diga 'Engine running' y vuelve a intentar."; exit 1; }
@@ -26,3 +26,4 @@ FICO_URL="$URL" $C up -d n8n 2>/dev/null
 echo "$URL" > .tunnel-url
 echo "Editor:   http://localhost:5678"
 echo "Publico:  $URL"
+./rehook.sh || true
