@@ -4,10 +4,9 @@
 # Requiere supabase/.env.fico (llaves de FICO) y SUPABASE_ACCESS_TOKEN en infra/.env.local.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-REF="${SUPABASE_PROJECT_REF:-uraqkeprtjmkkrjbpyop}"
-BASE="https://${REF}.supabase.co/functions/v1/fico"
-
 . infra/.env.local
+REF="${SUPABASE_PROJECT_REF:?Define SUPABASE_PROJECT_REF en infra/.env.local}"
+BASE="https://${REF}.supabase.co/functions/v1/fico"
 [ -n "${SUPABASE_ACCESS_TOKEN:-}" ] || { echo "Falta SUPABASE_ACCESS_TOKEN en infra/.env.local (https://supabase.com/dashboard/account/tokens)."; exit 1; }
 export SUPABASE_ACCESS_TOKEN
 for k in FICO_DB_URL FICO_TOKEN TELEGRAM_BOT_TOKEN GEMINI_API_KEY GROQ_API_KEY; do
